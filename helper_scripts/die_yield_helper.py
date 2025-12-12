@@ -143,7 +143,7 @@ def die_yield_centered_reticle_flexible(
                             # Add the center position to the list
                             die_centers_list.append((cx, cy))
                             # Plot a red dot at the center of the die
-                            ax.plot(cx, cy, 'ro', markersize=1)
+                            ax.plot(cx, cy, 'ro', markersize=0.5)
 
             # Plot reticle boundaries (blue dashed)
             rect = Rectangle((ox, oy), ret_w, ret_h, edgecolor='blue', facecolor='none', lw=1, linestyle='--')
@@ -153,7 +153,7 @@ def die_yield_centered_reticle_flexible(
         ax.set_xlim(-wafer_r-5, wafer_r+5)
         ax.set_ylim(-wafer_r-5, wafer_r+5)
         ax.set_title(f"{wafer_size}mm Wafer Map: {total_dies} full dies (green) + reticles (blue dashed)")
-        plt.savefig('wafer_map.png', dpi=150, bbox_inches='tight')
+        plt.savefig('wafer_map.png', dpi=250, bbox_inches='tight')
         plt.show()
 
         # Print the list of die center positions
