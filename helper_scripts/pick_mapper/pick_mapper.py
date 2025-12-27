@@ -33,7 +33,7 @@ def csv_to_dict(csv_path: str, json_path: str):
 
 
 if __name__ == "__main__":
-    # TODO: somewhere we harmonize with 
+    # TODO: somewhere we harmonize with actual run data from stitcher
     
     run = 'run1' 
     csv_file = "../die_yield_helper/waferspace_run1_test.csv"
@@ -42,3 +42,4 @@ if __name__ == "__main__":
     data = csv_to_dict(csv_file, json_file)
     print(f"Processed {sum(len(v) for v in data.values())} rows")
     print(f"Unique COL|ROW entries: {len(data)}")
+    print(data.keys())
