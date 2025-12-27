@@ -1,4 +1,4 @@
-import math
+import math, json
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Rectangle
@@ -6,202 +6,133 @@ from typing import List, Tuple
 
 # --- New Die Slicing Scheme ---
 # Units are in mm. columns correspond to die widths, rows to die heights.
-DIE_WIDTHS: List[float] = [1, 3.88, 3.88, 3.88, 3.88, 3.88, 3.88, 3.88, 1.94, 1]
-DIE_HEIGHTS: List[float] = list(reversed([1, 2.535, 5.070, 5.070, 5.070, 5.070, 1]))
-KERF: float = 0.035 # Saw kerf in mm
+DIE_WIDTHS: List[float] = [3.88, 3.88, 3.88, 3.88, 3.88, 3.88, 3.88, 1.88, 1.88]
+DIE_HEIGHTS: List[float] = list(reversed([1.88, 2.535, 5.070, 5.070, 5.070, 5.070]))
+KERF: float = 0.024 # Saw kerf in mm
 WAFER_SIZE: float = 200 # Wafer size in mm
 EXLUSION_ZONE: float = 3.0 # Exclusion zone from wafer edge in mm
 
-def die_yield_centered_reticle_flexible(
+
+def die_yield_advanced(
     die_widths: List[float],
     die_heights: List[float],
     kerf: float,
     wafer_size: float = 200,
     exclusion_zone: float = 3.0,
     plot: bool = False,
-    heatmap: bool = False
-) -> Tuple[int, List[Tuple[float, float]], np.ndarray]:
+    heatmap: bool = False,
+    filename: str = None
+) -> Tuple[int, List[Tuple[float, float, str]], np.ndarray]:
     """
-    Compute usable die yield on a wafer with tiling starting from central 4 reticle shots.
-    This version supports dies of different widths (columns) and heights (rows) within the reticle.
-    
-    Parameters:
-        die_widths: List of die widths (column-wise) in mm.
-        die_heights: List of die heights (row-wise) in mm.
-        kerf: Saw kerf in mm.
-        wafer_size: Wafer diameter in mm.
-        plot: Plot wafer + dies + reticle locations.
-        heatmap: Plot reticle yield heatmap.
+    Compute usable die yield with unique shot (reticle) identifiers and SVG output.
     
     Returns:
-        total_dies: Total number of full dies found on the wafer.
-        die_centers: List of (x, y) center coordinates for the usable dies.
-        reticle_yield_counts: 2D numpy array of yield counts for each die position within the reticle.
+        total_dies: Total count
+        die_data: List of (x_center, y_center, full_label)
+        reticle_yield_counts: 2D array of yield per reticle position
     """
     
-    wafer_r: float = (wafer_size / 2.0) - exclusion_zone # Effective wafer radius after exclusion zone
-    reticle_cols: int = len(die_widths)
-    reticle_rows: int = len(die_heights)
+    wafer_r = wafer_size / 2.0 - exclusion_zone
+    reticle_cols = len(die_widths)
+    reticle_rows = len(die_heights)
 
-    # Calculate horizontal and vertical pitch lists (die_dim + kerf)
-    px_list: List[float] = [dw + kerf for dw in die_widths]
-    py_list: List[float] = [dh + kerf for dh in die_heights]
+    px_list = [dw + kerf for dw in die_widths]
+    py_list = [dh + kerf for dh in die_heights]
     
-    # Reticle dimensions are the sum of all pitches, minus one kerf
-    ret_w: float = sum(px_list) - kerf
-    ret_h: float = sum(py_list) - kerf
+    ret_w = sum(px_list) - kerf
+    ret_h = sum(py_list) - kerf
 
-    # Determine number of reticles to tile in each direction
-    # This logic assumes the reticle centers tile from (0,0) and tries to cover the wafer.
-    n_rx: int = int(math.ceil((wafer_r + ret_w/2) / ret_w))
-    n_ry: int = int(math.ceil((wafer_r + ret_h/2) / ret_h))
+    n_rx = int(math.ceil((wafer_r + ret_w/2) / ret_w))
+    n_ry = int(math.ceil((wafer_r + ret_h/2) / ret_h))
 
-    # Compute reticle origin positions (tile from center)
-    origins: List[Tuple[float, float]] = []
+    die_data = [] 
+    reticle_yield_counts = np.zeros((reticle_rows, reticle_cols), dtype=int)
+    total_dies = 0
+    reticle_boundaries = []
+
+    # Iterate through reticle grid
     for ix in range(-n_rx, n_rx):
         for iy in range(-n_ry, n_ry):
-            ox: float = ix * ret_w
-            oy: float = iy * ret_h
-            origins.append((ox, oy))
-
-    centers: List[Tuple[float, float]] = []
-    reticle_yield_counts: np.ndarray = np.zeros((reticle_rows, reticle_cols), dtype=int)
-    total_dies: int = 0
-
-    # Scan dies within each reticle
-    for ox, oy in origins:
-        for c in range(reticle_cols):
-            # The accumulated distance up to the start of column c
-            # This is the sum of pitches for all columns *before* c.
-            # Start position in X relative to reticle origin
-            x_start_rel: float = sum(px_list[:c])
-            die_w: float = die_widths[c]
-            hx: float = die_w / 2.0
+            ox = ix * ret_w
+            oy = iy * ret_h
+            reticle_boundaries.append((ox, oy))
             
-            for r in range(reticle_rows):
-                # The accumulated distance up to the start of row r
-                # This is the sum of pitches for all rows *before* r.
-                # Start position in Y relative to reticle origin
-                y_start_rel: float = sum(py_list[:r])
-                die_h: float = die_heights[r]
-                hy: float = die_h / 2.0
+            # Shot ID based on grid position
+            shot_id = f"S{ix}_{iy}"
 
-                # Center of the die
-                # Die center = Reticle Origin + Relative Start + Half Die Dimension
-                cx: float = ox + x_start_rel + hx
-                cy: float = oy + y_start_rel + hy
+            for c in range(reticle_cols):
+                x_start_rel = sum(px_list[:c])
+                die_w = die_widths[c]
+                hx = die_w / 2.0
                 
-                # Check the four corners for being inside the wafer
-                corners: List[Tuple[float, float]] = [
-                    (cx - hx, cy - hy), (cx + hx, cy - hy),
-                    (cx + hx, cy + hy), (cx - hx, cy + hy)
-                ]
-                
-                # A die is usable if *all* four corners are within the wafer radius
-                inside: bool = all(x*x + y*y <= wafer_r**2 for x, y in corners)
-                
-                if inside:
-                    centers.append((cx, cy))
-                    total_dies += 1
-                    # determine die position within reticle (r, c)
-                    reticle_yield_counts[r, c] += 1
+                for r in range(reticle_rows):
+                    y_start_rel = sum(py_list[:r])
+                    die_h = die_heights[r]
+                    hy = die_h / 2.0
 
-    # Plot wafer + dies + reticles
-    if plot:
-        fig, ax = plt.subplots(figsize=(8,8))
+                    cx, cy = ox + x_start_rel + hx, oy + y_start_rel + hy
+                    
+                    corners = [
+                        (cx - hx, cy - hy), (cx + hx, cy - hy),
+                        (cx + hx, cy + hy), (cx - hx, cy + hy)
+                    ]
+                    
+                    if all(x*x + y*y <= wafer_r**2 for x, y in corners):
+                        # Combined Label: Shot ID + Die Position
+                        full_label = f"{shot_id},C{c}R{r}"
+                        die_data.append((cx, cy, full_label))
+                        total_dies += 1
+                        reticle_yield_counts[r, c] += 1
+
+    if plot or filename:
+        fig, ax = plt.subplots(figsize=(14, 14))
         wafer = Circle((0,0), wafer_size / 2.0, edgecolor='black', facecolor='none', lw=2)
         ax.add_patch(wafer)
 
-        # List to store center positions of all dies
-        die_centers_list = []
-
-        # Plot all usable dies
-        for ox, oy in origins:
-            for c in range(reticle_cols):
-                x_start_rel: float = sum(px_list[:c])
-                die_w: float = die_widths[c]
+        # Plot usable dies
+        for cx, cy, label in die_data:
+            # Parse label to get dimensions for drawing
+            # Label format: "S[ix,iy]-CcRr"
+            pos_part = label.split(',')[1]
+            c_idx = int(pos_part.split('R')[0][1:])
+            r_idx = int(pos_part.split('R')[1])
+            w, h = die_widths[c_idx], die_heights[r_idx]
+            
+            # Use a consistent color based on die position (column, row)
+            color_idx = (c_idx * len(die_heights) + r_idx) % 10
+            colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+            rect = Rectangle((cx - w/2, cy - h/2), w, h, edgecolor='black', facecolor=colors[color_idx], lw=0.4, alpha=.5)
+            
+            if not (c_idx == reticle_cols-1 or r_idx == reticle_rows-1):
+                ax.add_patch(rect)
                 
-                for r in range(reticle_rows):
-                    y_start_rel: float = sum(py_list[:r])
-                    die_h: float = die_heights[r]
+                # Red dot at center
+                ax.plot(cx, cy, 'ro', markersize=1.5)
+                
+                # Label text
+                ax.text(cx, cy, label, fontsize=2.5, ha='center', va='center', color='darkgreen', rotation=45)
 
-                    # Lower-left corner of the die
-                    llx: float = ox + x_start_rel
-                    lly: float = oy + y_start_rel
-                    
-                    if reticle_yield_counts[r, c] > 0:
-                        # Find the center for this die in this specific reticle
-                        cx = llx + die_w / 2.0
-                        cy = lly + die_h / 2.0
-                        
-                        if (cx, cy) in centers:  # Check if it was a counted die
-                            rect = Rectangle(
-                                (llx, lly), die_w, die_h, 
-                                edgecolor='green', facecolor='none', lw=0.5
-                            )
-                            ax.add_patch(rect)
-                            # Add the center position to the list
-                            die_centers_list.append((cx, cy))
-                            # Plot a red dot at the center of the die
-                            ax.plot(cx, cy, 'ro', markersize=0.5)
-
-            # Plot reticle boundaries (blue dashed)
-            rect = Rectangle((ox, oy), ret_w, ret_h, edgecolor='blue', facecolor='none', lw=1, linestyle='--')
+        # Plot reticle boundaries
+        for ox, oy in reticle_boundaries:
+            rect = Rectangle((ox, oy), ret_w, ret_h, edgecolor='blue', facecolor='none', lw=0.8, linestyle='--', alpha=0.4)
             ax.add_patch(rect)
 
         ax.set_aspect('equal')
-        ax.set_xlim(-wafer_r-5, wafer_r+5)
-        ax.set_ylim(-wafer_r-5, wafer_r+5)
-        ax.set_title(f"{wafer_size}mm Wafer Map: {total_dies} full dies (green) + reticles (blue dashed)")
-        plt.savefig('wafer_map.png', dpi=250, bbox_inches='tight')
-        plt.show()
-
-        # Print the list of die center positions
-        print("Center positions of all usable dies:")
-        print(die_centers_list)
-
-        # x_start_rel: float = sum(px_list[:c])
-        # die_w: float = die_widths[c]
+        ax.set_xlim(-wafer_r-10, wafer_r+10)
+        ax.set_ylim(-wafer_r-10, wafer_r+10)
+        ax.set_title(f"Wafer Map: {total_dies} usable dies\nLabel Format: ShotID-ColumnRow")
         
-        # for r in range(reticle_rows):
-        #     y_start_rel: float = sum(py_list[:r])
-        #     die_h: float = die_heights[r]
-
-        #     # Lower-left corner of the die
-        #     llx: float = ox + x_start_rel
-        #     lly: float = oy + y_start_rel
+        
+        if plot:
+            if filename:
+                plt.savefig(f"{filename}.svg", format='svg', bbox_inches='tight')
+        
+            plt.show()
+        else:
+            plt.close()
             
-        #     if reticle_yield_counts[r, c] > 0:
-        #         # Re-check the die is inside for this specific reticle shot
-        #         # This is necessary because `reticle_yield_counts` accumulates across all shots,
-        #         # but we only want to plot the dies that were marked as usable.
-        #         # Since the check is already done above, we can simplify this block:
-                
-        #         # Find the center for this die in this specific reticle
-        #         cx = llx + die_w / 2.0
-        #         cy = lly + die_h / 2.0
-                
-        #         if (cx, cy) in centers: # Simple check to see if it was a counted die
-        #             rect = Rectangle(
-        #                 (llx, lly), die_w, die_h, 
-        #                 edgecolor='green', facecolor='none', lw=0.5
-        #             )
-        #             ax.add_patch(rect)
-                        
-        #     # Plot reticle boundaries (blue dashed)
-        #     rect = Rectangle((ox, oy), ret_w, ret_h, edgecolor='blue', facecolor='none', lw=1, linestyle='--')
-        #     ax.add_patch(rect)
-
-        # ax.set_aspect('equal')
-        # ax.set_xlim(-wafer_r-5, wafer_r+5)
-        # ax.set_ylim(-wafer_r-5, wafer_r+5)
-        # ax.set_title(f"{wafer_size}mm Wafer Map: {total_dies} full dies (green) + reticles (blue dashed)")
-        # plt.show()
-        
-
-
     # Reticle yield heatmap
-    if heatmap:
+    if heatmap and plot:
         fig, ax = plt.subplots(figsize=(6,5))
         im = ax.imshow(reticle_yield_counts, cmap="viridis", origin="lower")
         for r in range(reticle_yield_counts.shape[0]):
@@ -211,16 +142,31 @@ def die_yield_centered_reticle_flexible(
         ax.set_xlabel("Column index")
         ax.set_ylabel("Row index")
         fig.colorbar(im, ax=ax, label="Usable dies")
+        
+       
+        plt.savefig(f"{filename}_heatmap.svg", format='svg', bbox_inches='tight')
+        
         plt.show()
         
-
-    return total_dies, centers, reticle_yield_counts
+        
+    with open(f"{filename}.csv", 'w') as f:
+        f.write("X ,Y ,RETICLE, COL|ROW\n")
+        for die in die_data:
+            f.write(f"{round(die[0], 3)},{round(die[1], 3)},{die[2]}\n")
+            
+    return total_dies, die_data, reticle_yield_counts
 
 if __name__ == "__main__":
-    # Use the new lists defined at the top
-    total, centers, counts = die_yield_centered_reticle_flexible(
-        DIE_WIDTHS, DIE_HEIGHTS, KERF, WAFER_SIZE, EXLUSION_ZONE, plot=True, heatmap=True
+    total_dies, die_list, reticle_yield_counts = die_yield_advanced(
+        DIE_WIDTHS, 
+        DIE_HEIGHTS, 
+        KERF, 
+        WAFER_SIZE,
+        EXLUSION_ZONE,
+        plot=True, 
+        heatmap=True,
+        filename="waferspace_run1_test"
     )
-    print(f"Total usable dies: {total}")
-    print("Reticle-position yield table (rows 0=bottom..N-1=top):")
-    print(counts)
+
+    print(f"\nTotal usable dies: {total_dies},\nDie count array shape: {reticle_yield_counts.shape},\n{reticle_yield_counts}")
+    
