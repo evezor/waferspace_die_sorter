@@ -1,5 +1,6 @@
-import json
-from pathlib import Path
+import json, os
+
+
 
 INPUT_JSON = "../pick_mapper/waferspace_run1_test.json"
 OUTPUT_JSONL = "pick.jsonl"
