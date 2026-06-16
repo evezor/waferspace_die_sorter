@@ -1,4 +1,3 @@
-import csv
 from collections import defaultdict
 from pprint import pprint
 MANIFEST = "manifest.csv"
@@ -8,18 +7,20 @@ TILEMAP = "tilemap.csv"
 def load_slot_map(MANIFEST):
     """Return dict: CODE -> SLOT_SIZE"""
     slot_map = {}
-    with open(MANIFEST, newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
+    with open(MANIFEST) as f:
+        lines = f.read().strip().split("\n")
+        headers = lines[0].split(",")
+        for line in lines[1:]:
+            values = line.split(",")
+            row = dict(zip(headers, values))
             slot_map[row["CODE"]] = {"SLOT_SIZE": row["SLOT_SIZE"], "PROJECT": row["PROJECT"]}
     return slot_map
 
 
 def load_grid(TILEMAP):
     """Return grid as list[list[str]]"""
-    with open(TILEMAP, newline="") as f:
-        reader = csv.reader(f)
-        return [row for row in reader]
+    with open(TILEMAP) as f:
+        return [line.strip().split(",") for line in f if line.strip()]
 
 
 def build_layout(grid, slot_map):

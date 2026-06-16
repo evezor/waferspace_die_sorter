@@ -150,6 +150,7 @@ def die_yield_advanced(
         
         
     with open(f"{filename}.csv", 'w') as f:
+        # save CSV file for pnp
         f.write("X,Y,RETICLE_SHOT,COL|ROW\n")
         for die in die_data:
             f.write(f"{round(die[0], 3)},{round(die[1], 3)},{die[2]}\n")
